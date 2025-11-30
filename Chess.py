@@ -76,28 +76,43 @@ def init_user_db():
                                 """
                                 CREATE TABLE IF NOT EXISTS users (
                                         email TEXT PRIMARY KEY,
+                                        username TEXT NOT NULL,
                                         password TEXT NOT NULL
                                 )
                                 """
                         )
+
+                        cur = conn.execute("PRAGMA table_info(users)")
+                        columns = {row[1] for row in cur.fetchall()}
+                        if "username" not in columns:
+                                conn.execute(
+                                        "ALTER TABLE users ADD COLUMN username TEXT NOT NULL DEFAULT ''"
+                                )
         except sqlite3.Error:
                 pass
 
 
-def get_user_password(email):
+def get_user(email):
         try:
                 with sqlite3.connect(USERS_DB) as conn:
-                        cur = conn.execute("SELECT password FROM users WHERE email = ?", (email,))
+                        cur = conn.execute(
+                                "SELECT username, password FROM users WHERE email = ?", (email,)
+                        )
                         row = cur.fetchone()
-                        return row[0] if row else None
+                        if row:
+                                return {"username": row[0], "password": row[1]}
+                        return None
         except sqlite3.Error:
                 return None
 
 
-def create_user(email, password):
+def create_user(email, username, password):
         try:
                 with sqlite3.connect(USERS_DB) as conn:
-                        conn.execute("INSERT INTO users (email, password) VALUES (?, ?)", (email, password))
+                        conn.execute(
+                                "INSERT INTO users (email, username, password) VALUES (?, ?, ?)",
+                                (email, username, password),
+                        )
                 return True
         except sqlite3.IntegrityError:
                 return False
@@ -109,16 +124,20 @@ def auth_screen():
         font = pygame.font.SysFont("Arial", 46)
         small_font = pygame.font.SysFont("Arial", 28)
 
-        email_input = TextInput(pygame.Rect(WIDTH // 2 - 200, 260, 400, 50), "Почта")
-        password_input = TextInput(pygame.Rect(WIDTH // 2 - 200, 340, 400, 50), "Пароль", is_password=True)
+        username_input = TextInput(pygame.Rect(WIDTH // 2 - 200, 200, 400, 50), "Имя пользователя")
+        email_input = TextInput(pygame.Rect(WIDTH // 2 - 200, 280, 400, 50), "Почта")
+        password_input = TextInput(pygame.Rect(WIDTH // 2 - 200, 360, 400, 50), "Пароль", is_password=True)
+        confirm_input = TextInput(
+                pygame.Rect(WIDTH // 2 - 200, 440, 400, 50), "Подтвердите пароль", is_password=True
+        )
 
         mode = "register"  # или "login"
         message = ""
 
-        register_btn = pygame.Rect(WIDTH // 2 - 210, 430, 200, 55)
-        login_btn = pygame.Rect(WIDTH // 2 + 10, 430, 200, 55)
-        submit_btn = pygame.Rect(WIDTH // 2 - 210, 510, 420, 55)
-        quit_btn = pygame.Rect(WIDTH // 2 - 80, 590, 160, 45)
+        register_btn = pygame.Rect(WIDTH // 2 - 210, 520, 200, 55)
+        login_btn = pygame.Rect(WIDTH // 2 + 10, 520, 200, 55)
+        submit_btn = pygame.Rect(WIDTH // 2 - 210, 600, 420, 55)
+        quit_btn = pygame.Rect(WIDTH // 2 - 80, 680, 160, 45)
 
         while True:
                 WINDOW.fill((20, 24, 35))
@@ -126,8 +145,10 @@ def auth_screen():
                 title = font.render("Добро пожаловать", True, (255, 255, 255))
                 WINDOW.blit(title, (WIDTH // 2 - title.get_width() // 2, 150))
 
+                username_input.draw(WINDOW)
                 email_input.draw(WINDOW)
                 password_input.draw(WINDOW)
+                confirm_input.draw(WINDOW)
 
                 pygame.draw.rect(WINDOW, (70, 150, 220) if mode == "register" else (90, 90, 90), register_btn, border_radius=8)
                 pygame.draw.rect(WINDOW, (70, 150, 220) if mode == "login" else (90, 90, 90), login_btn, border_radius=8)
@@ -146,7 +167,7 @@ def auth_screen():
 
                 if message:
                         msg_surface = small_font.render(message, True, (255, 200, 120))
-                        WINDOW.blit(msg_surface, (WIDTH // 2 - msg_surface.get_width() // 2, 200))
+                        WINDOW.blit(msg_surface, (WIDTH // 2 - msg_surface.get_width() // 2, 170))
 
                 pygame.display.flip()
 
@@ -168,45 +189,53 @@ def auth_screen():
                                         pygame.quit()
                                         sys.exit()
 
-                        for input_box in (email_input, password_input):
+                        for input_box in (username_input, email_input, password_input, confirm_input):
                                 result = input_box.handle_event(event)
                                 if result == "submit":
                                         submit_triggered = True
 
                         if event.type == pygame.KEYDOWN and event.key == pygame.K_TAB:
-                                if email_input.active:
-                                        email_input.active = False
-                                        password_input.active = True
-                                elif password_input.active:
-                                        password_input.active = False
-                                        email_input.active = True
-                                else:
-                                        email_input.active = True
+                                inputs = [username_input, email_input, password_input, confirm_input]
+                                active_index = next((i for i, box in enumerate(inputs) if box.active), -1)
+                                for box in inputs:
+                                        box.active = False
+                                next_index = (active_index + 1) % len(inputs)
+                                inputs[next_index].active = True
 
                         if submit_triggered:
+                                username = username_input.text.strip()
                                 email = email_input.text.strip()
                                 password = password_input.text
-
-                                if not email or not password:
-                                        message = "Введите почту и пароль"
-                                        continue
+                                confirm_password = confirm_input.text
 
                                 if mode == "register":
+                                        if not username:
+                                                message = "Введите имя пользователя"
+                                                continue
                                         if not EMAIL_PATTERN.match(email):
                                                 message = "Почта должна быть в формате @....com"
                                                 continue
-                                        existing_password = get_user_password(email)
-                                        if existing_password is not None:
+                                        if not password or not confirm_password:
+                                                message = "Введите пароль и подтверждение"
+                                                continue
+                                        if password != confirm_password:
+                                                message = "Пароли не совпадают"
+                                                continue
+                                        existing_user = get_user(email)
+                                        if existing_user is not None:
                                                 message = "Пользователь уже существует"
                                         else:
-                                                if create_user(email, password):
+                                                if create_user(email, username, password):
                                                         return email
                                                 message = "Ошибка при сохранении пользователя"
                                 else:
-                                        stored_password = get_user_password(email)
-                                        if stored_password is None:
+                                        if not email or not password:
+                                                message = "Введите почту и пароль"
+                                                continue
+                                        stored_user = get_user(email)
+                                        if stored_user is None:
                                                 message = "Аккаунт не найден"
-                                        elif stored_password != password:
+                                        elif stored_user["password"] != password:
                                                 message = "Неверный пароль"
                                         else:
                                                 return email
