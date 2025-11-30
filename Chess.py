@@ -1,5 +1,6 @@
 import os
-import json
+import re
+import sqlite3
 
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 import pygame
@@ -26,7 +27,8 @@ WINDOW = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption('Шахматы')
 clock = pygame.time.Clock()
 
-USERS_FILE = "users.json"
+USERS_DB = "users.db"
+EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.com$")
 
 last_move = None
 selected = None  # инициализация в начале программы
@@ -67,26 +69,43 @@ class TextInput:
                 surface.blit(text_surface, (self.rect.x + 10, self.rect.y + (self.rect.height - text_surface.get_height()) // 2))
 
 
-def load_users():
-        if os.path.exists(USERS_FILE):
-                try:
-                        with open(USERS_FILE, "r", encoding="utf-8") as f:
-                                return json.load(f)
-                except (json.JSONDecodeError, OSError):
-                        return {}
-        return {}
-
-
-def save_users(users):
+def init_user_db():
         try:
-                with open(USERS_FILE, "w", encoding="utf-8") as f:
-                        json.dump(users, f, ensure_ascii=False, indent=2)
-        except OSError:
+                with sqlite3.connect(USERS_DB) as conn:
+                        conn.execute(
+                                """
+                                CREATE TABLE IF NOT EXISTS users (
+                                        email TEXT PRIMARY KEY,
+                                        password TEXT NOT NULL
+                                )
+                                """
+                        )
+        except sqlite3.Error:
                 pass
 
 
+def get_user_password(email):
+        try:
+                with sqlite3.connect(USERS_DB) as conn:
+                        cur = conn.execute("SELECT password FROM users WHERE email = ?", (email,))
+                        row = cur.fetchone()
+                        return row[0] if row else None
+        except sqlite3.Error:
+                return None
+
+
+def create_user(email, password):
+        try:
+                with sqlite3.connect(USERS_DB) as conn:
+                        conn.execute("INSERT INTO users (email, password) VALUES (?, ?)", (email, password))
+                return True
+        except sqlite3.IntegrityError:
+                return False
+        except sqlite3.Error:
+                return False
+
+
 def auth_screen():
-        users = load_users()
         font = pygame.font.SysFont("Arial", 46)
         small_font = pygame.font.SysFont("Arial", 28)
 
@@ -173,16 +192,21 @@ def auth_screen():
                                         continue
 
                                 if mode == "register":
-                                        if email in users:
+                                        if not EMAIL_PATTERN.match(email):
+                                                message = "Почта должна быть в формате @....com"
+                                                continue
+                                        existing_password = get_user_password(email)
+                                        if existing_password is not None:
                                                 message = "Пользователь уже существует"
                                         else:
-                                                users[email] = password
-                                                save_users(users)
-                                                return email
+                                                if create_user(email, password):
+                                                        return email
+                                                message = "Ошибка при сохранении пользователя"
                                 else:
-                                        if email not in users:
+                                        stored_password = get_user_password(email)
+                                        if stored_password is None:
                                                 message = "Аккаунт не найден"
-                                        elif users.get(email) != password:
+                                        elif stored_password != password:
                                                 message = "Неверный пароль"
                                         else:
                                                 return email
@@ -1079,6 +1103,7 @@ def main_ai(ai_elo, ai_color="black"):
 
 
 if __name__ == "__main__":
+        init_user_db()
         user_email = auth_screen()
         mode, ai_elo = main_menu(user_email)
         if mode == "player_vs_ai":
