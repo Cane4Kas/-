@@ -1,4 +1,5 @@
 import os
+import json
 
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 import pygame
@@ -25,8 +26,166 @@ WINDOW = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption('Шахматы')
 clock = pygame.time.Clock()
 
+USERS_FILE = "users.json"
+
 last_move = None
 selected = None  # инициализация в начале программы
+
+
+class TextInput:
+        def __init__(self, rect, placeholder="", is_password=False):
+                self.rect = rect
+                self.text = ""
+                self.placeholder = placeholder
+                self.active = False
+                self.is_password = is_password
+                self.font = pygame.font.SysFont("Arial", 28)
+
+        def handle_event(self, event):
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                        self.active = self.rect.collidepoint(event.pos)
+                if event.type == pygame.KEYDOWN and self.active:
+                        if event.key == pygame.K_BACKSPACE:
+                                self.text = self.text[:-1]
+                        elif event.key == pygame.K_RETURN:
+                                return "submit"
+                        else:
+                                # Ограничиваем неуправляемые символы
+                                if len(event.unicode) == 1 and 31 < ord(event.unicode) < 127:
+                                        self.text += event.unicode
+                return None
+
+        def draw(self, surface):
+                pygame.draw.rect(surface, (255, 255, 255), self.rect, 2 if self.active else 1, border_radius=6)
+                display_text = "*" * len(self.text) if self.is_password else self.text
+                if not display_text:
+                        display_text = self.placeholder
+                        color = (160, 160, 160)
+                else:
+                        color = (255, 255, 255)
+                text_surface = self.font.render(display_text, True, color)
+                surface.blit(text_surface, (self.rect.x + 10, self.rect.y + (self.rect.height - text_surface.get_height()) // 2))
+
+
+def load_users():
+        if os.path.exists(USERS_FILE):
+                try:
+                        with open(USERS_FILE, "r", encoding="utf-8") as f:
+                                return json.load(f)
+                except (json.JSONDecodeError, OSError):
+                        return {}
+        return {}
+
+
+def save_users(users):
+        try:
+                with open(USERS_FILE, "w", encoding="utf-8") as f:
+                        json.dump(users, f, ensure_ascii=False, indent=2)
+        except OSError:
+                pass
+
+
+def auth_screen():
+        users = load_users()
+        font = pygame.font.SysFont("Arial", 46)
+        small_font = pygame.font.SysFont("Arial", 28)
+
+        email_input = TextInput(pygame.Rect(WIDTH // 2 - 200, 260, 400, 50), "Почта")
+        password_input = TextInput(pygame.Rect(WIDTH // 2 - 200, 340, 400, 50), "Пароль", is_password=True)
+
+        mode = "register"  # или "login"
+        message = ""
+
+        register_btn = pygame.Rect(WIDTH // 2 - 210, 430, 200, 55)
+        login_btn = pygame.Rect(WIDTH // 2 + 10, 430, 200, 55)
+        submit_btn = pygame.Rect(WIDTH // 2 - 210, 510, 420, 55)
+        quit_btn = pygame.Rect(WIDTH // 2 - 80, 590, 160, 45)
+
+        while True:
+                WINDOW.fill((20, 24, 35))
+
+                title = font.render("Добро пожаловать", True, (255, 255, 255))
+                WINDOW.blit(title, (WIDTH // 2 - title.get_width() // 2, 150))
+
+                email_input.draw(WINDOW)
+                password_input.draw(WINDOW)
+
+                pygame.draw.rect(WINDOW, (70, 150, 220) if mode == "register" else (90, 90, 90), register_btn, border_radius=8)
+                pygame.draw.rect(WINDOW, (70, 150, 220) if mode == "login" else (90, 90, 90), login_btn, border_radius=8)
+                reg_text = small_font.render("Регистрация", True, (255, 255, 255))
+                log_text = small_font.render("Вход", True, (255, 255, 255))
+                WINDOW.blit(reg_text, reg_text.get_rect(center=register_btn.center))
+                WINDOW.blit(log_text, log_text.get_rect(center=login_btn.center))
+
+                pygame.draw.rect(WINDOW, (60, 200, 120), submit_btn, border_radius=8)
+                submit_text = small_font.render("Продолжить", True, (20, 20, 20))
+                WINDOW.blit(submit_text, submit_text.get_rect(center=submit_btn.center))
+
+                pygame.draw.rect(WINDOW, (200, 70, 70), quit_btn, border_radius=8)
+                quit_text = small_font.render("Выход", True, (255, 255, 255))
+                WINDOW.blit(quit_text, quit_text.get_rect(center=quit_btn.center))
+
+                if message:
+                        msg_surface = small_font.render(message, True, (255, 200, 120))
+                        WINDOW.blit(msg_surface, (WIDTH // 2 - msg_surface.get_width() // 2, 200))
+
+                pygame.display.flip()
+
+                for event in pygame.event.get():
+                        if event.type == pygame.QUIT:
+                                pygame.quit()
+                                sys.exit()
+
+                        submit_triggered = False
+
+                        if event.type == pygame.MOUSEBUTTONDOWN:
+                                if register_btn.collidepoint(event.pos):
+                                        mode = "register"
+                                elif login_btn.collidepoint(event.pos):
+                                        mode = "login"
+                                elif submit_btn.collidepoint(event.pos):
+                                        submit_triggered = True
+                                elif quit_btn.collidepoint(event.pos):
+                                        pygame.quit()
+                                        sys.exit()
+
+                        for input_box in (email_input, password_input):
+                                result = input_box.handle_event(event)
+                                if result == "submit":
+                                        submit_triggered = True
+
+                        if event.type == pygame.KEYDOWN and event.key == pygame.K_TAB:
+                                if email_input.active:
+                                        email_input.active = False
+                                        password_input.active = True
+                                elif password_input.active:
+                                        password_input.active = False
+                                        email_input.active = True
+                                else:
+                                        email_input.active = True
+
+                        if submit_triggered:
+                                email = email_input.text.strip()
+                                password = password_input.text
+
+                                if not email or not password:
+                                        message = "Введите почту и пароль"
+                                        continue
+
+                                if mode == "register":
+                                        if email in users:
+                                                message = "Пользователь уже существует"
+                                        else:
+                                                users[email] = password
+                                                save_users(users)
+                                                return email
+                                else:
+                                        if email not in users:
+                                                message = "Аккаунт не найден"
+                                        elif users.get(email) != password:
+                                                message = "Неверный пароль"
+                                        else:
+                                                return email
 
 
 class Piece:
@@ -668,7 +827,7 @@ def show_game_over(winner):
                                 return
 
 
-def main_menu():
+def main_menu(user_email=None):
         running = True
         selected_mode = None
         font = pygame.font.SysFont("Arial", 50)
@@ -689,6 +848,10 @@ def main_menu():
                 title = font.render("Шахматы", True, (255, 255, 255))
                 title_rect = title.get_rect(center=(WIDTH // 2, 100))
                 WINDOW.blit(title, title_rect)
+
+                if user_email:
+                        hello_text = small_font.render(f"Вы вошли как {user_email}", True, (200, 200, 200))
+                        WINDOW.blit(hello_text, (WIDTH // 2 - hello_text.get_width() // 2, 140))
 
                 mx, my = pygame.mouse.get_pos()
                 for key, btn in buttons.items():
@@ -916,9 +1079,11 @@ def main_ai(ai_elo, ai_color="black"):
 
 
 if __name__ == "__main__":
-        mode, ai_elo = main_menu()
+        user_email = auth_screen()
+        mode, ai_elo = main_menu(user_email)
         if mode == "player_vs_ai":
                 main_ai(ai_elo)
         else:
                 main()
+
 
