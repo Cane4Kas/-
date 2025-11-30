@@ -227,6 +227,18 @@ class King(Piece):
                 self.value = 100
                 self.has_moved = False
 
+        def get_attack_squares(self, board):
+                """Return squares the king controls (без учёта рокировки)."""
+                moves = []
+                for dr in [-1, 0, 1]:
+                        for dc in [-1, 0, 1]:
+                                if dr == 0 and dc == 0:
+                                        continue
+                                new_row, new_col = self.row + dr, self.col + dc
+                                if 0 <= new_row < ROWS and 0 <= new_col < COLS:
+                                        moves.append((new_row, new_col))
+                return moves
+
         def get_castling_moves(self, board):
                 moves = []
                 if self.has_moved:
@@ -302,7 +314,12 @@ def is_square_attacked(board, row, col, color):
                 for c in range(COLS):
                         piece = board[r][c]
                         if piece is not None and piece.color == enemy:
-                                if (row, col) in piece.get_valid_moves(board):
+                                if isinstance(piece, King):
+                                        attacked = piece.get_attack_squares(board)
+                                else:
+                                        attacked = piece.get_valid_moves(board)
+
+                                if (row, col) in attacked:
                                         return True
         return False
 
